@@ -1,12 +1,3 @@
-// RiverDB.extend = function(destination, source) {
-//   for (var k in source) {
-//     if (source.hasOwnProperty(k)) {
-//       destination[k] = source[k];
-//     }
-//   }
-//   return destination;
-// }
-
 /**************************************************
  * RiverDB.Model
  **************************************************/
@@ -41,43 +32,42 @@ RiverDB.Model = function() {
 }
 
 RiverDB.rdbClone = function (obj) {
-  var copy;
+  var copy
 
   // Handle the 3 simple types, and null or undefined
   if (obj == null || typeof obj == 'object') { return obj }
 
   // Handle Date
   if (obj instanceof Date) {
-    copy = new Date();
-    copy.setTime(obj.getTime());
-    return copy;
+    copy = new Date()
+    copy.setTime(obj.getTime())
+    return copy
   }
 
   // Handle Array
   if (obj instanceof Array) {
-    copy = [];
+    copy = []
     for (var i = 0, len = obj.length; i < len; i++) {
-      copy[i] = clone(obj[i]);
+      copy[i] = clone(obj[i])
     }
-    return copy;
+    return copy
   }
 
   // Handle Object
   if (obj instanceof Object) {
-    copy = {};
+    copy = {}
     for (var attr in obj) {
-      if (obj.hasOwnProperty(attr)) copy[attr] = clone(obj[attr]);
+      if (obj.hasOwnProperty(attr)) copy[attr] = clone(obj[attr])
     }
-    return copy;
+    return copy
   }
 
-  throw new Error("Unable to copy obj! Its type isn't supported.");
+  throw new Error("Unable to copy obj! Its type isn't supported.")
 }
 
 RiverDB.save = function(obj) {
   this.collections[obj.rdbCollectionName].data[obj.rdbClientId] = this.rdbClone(obj.rdbAttributes)
   var listeners = this._listenersFor(obj.rdbCollectionName, obj.rdbClientId)
-  console.log('RiverDB listeners:' + listeners.length)
   listeners.forEach(function(listener) {
     listener.modelWasUpdated()
   })
@@ -120,18 +110,28 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
 
   model.hasOne = function(options) {
     if ((typeof options) == 'string') { options = { name: options } }
+
+    model.fields = model.fields || { }
+    model.fields[options.name] = options
+
     var inverse = options.inverse || modelName
     var parentModel = options.model || options.name
 
     model.prototype[options.name] = function() {
+      var self = this
       var association = RiverDB.models[parentModel]
+      var inversePolymorphic = false
+      try { inversePolymorphic = association.fields[inverse].polymorphic } catch (e) { }
+
       return association.select(function(child) {
+        if (inversePolymorphic && child.get(inverse + 'Type') != self.rdbModelName) { return false }
         var childParentId = child.get(inverse + 'Id')
         if (!childParentId) { return false }
+        var withinScope = !options.where || options.where(child)
         if (typeof childParentId == 'string' && childParentId.startsWith('rdbClientId')) {
-          return childParentId == this.rdbClientId
+          return childParentId == self.rdbClientId && withinScope
         } else {
-          return childParentId == this.id
+          return childParentId == self.id && withinScope
         }
       })
     }
@@ -139,20 +139,28 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
 
   model.hasMany = function(options) {
     if ((typeof options) == 'string') { options = { name: options } }
+
+    model.fields = model.fields || { }
+    model.fields[options.name] = options
+
     var inverse = options.inverse || modelName
 
     model.prototype[options.name] = function() {
+      var self = this
+      var inversePolymorphic = false
+      try { inversePolymorphic = association.fields[inverse].polymorphic } catch (e) { }
       var parentModel = options.model || RiverDB.collections[options.name].modelName
       var association = RiverDB.models[parentModel]
-      var thisId = this.id
-      var thisClientId = this.rdbClientId
+
       return association.where(function(child) {
+        if (inversePolymorphic && child[inverse + 'Type'] != self.rdbModelName) { return false }
         var childParentId = child.get(inverse + 'Id')
         if (!childParentId) { return false }
+        var withinScope = !options.where || options.where(child)
         if (typeof childParentId == 'string' && childParentId.startsWith('rdbClientId')) {
-          return childParentId == thisClientId
+          return childParentId == self.rdbClientId && withinScope
         } else {
-          return childParentId == thisId
+          return childParentId == self.id && withinScope
         }
       })
     }
@@ -160,20 +168,25 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
 
   model.belongsTo = function(options) {
     if ((typeof options) == 'string') { options = { name: options } }
-    var parent = options.model || options.name
+
+    model.fields = model.fields || { }
+    model.fields[options.name] = options
+
     var parentModel = options.model || options.name
 
     model.prototype[options.name] = function() {
       var parentId = this.get(options.name + 'Id')
       if (!parentId) { return null }
-      var association = RiverDB.models[parentModel]
-      return association.select(parentId)
+      var associatedModel = options.polymorphic ? this.get(options.name + 'Type') : parentModel
+      var association = RiverDB.models[associatedModel]
+      return association ? association.select(parentId) : null
     }
   }
 
   RiverDB.collections[collectionName] = new RiverDB.Collection(collectionName, modelName)
 
   init(model)
+  return model
 }
 
 RiverDB.Model.select = function(modelName, test) {
@@ -238,6 +251,8 @@ RiverDB.Model.prototype.set = function(attr, value) {
   } else {
     // TODO: attr could be an object containing multiple attributes
   }
+
+  return this
 }
 
 RiverDB.Model.prototype.save = function() {
@@ -268,53 +283,44 @@ RiverDB.Model.prototype.stopListening = function(obj) {
  * Example Models
  **************************************************/
 
-RiverDB.Model.create('person', 'people', function(person) {
-  person.hasMany({ name: 'pets', inverse: 'owner' })
-  person.hasOne('job')
-  person.hasOne({ name: 'career', through: 'job'})
+Store = RiverDB.Model.create('store', 'stores', function(store) {
+  store.hasMany('floors')
 })
 
-RiverDB.Model.create('pet', 'pets', function(pet) {
-  pet.belongsTo({ name: 'owner', model: 'person'})
+Floor = RiverDB.Model.create('floor', 'floors', function(floor) {
+  floor.belongsTo('store')
+  floor.hasMany('areas')
+  floor.hasMany('fixtures')
+  floor.hasOne({ name: 'layoutPosition', inverse: 'target' })
 })
 
-RiverDB.Model.create('career', 'careers', function(career) {
-  career.hasMany('jobs')
-  career.hasMany({ name: 'people', through: 'jobs'})
+Area = RiverDB.Model.create('area', 'areas', function(area) {
+  area.belongsTo('store')
+  area.belongsTo('floor')
+  area.hasMany('fixtures')
+  area.hasOne({ name: 'layoutPosition', inverse: 'target' })
 })
 
-RiverDB.Model.create('job', 'jobs', function(job) {
-  job.belongsTo('career')
-  job.belongsTo('person')
+Fixture = RiverDB.Model.create('fixture', 'fixtures', function(fixture) {
+  fixture.belongsTo('store')
+  fixture.belongsTo('area')
+  fixture.hasMany('positions')
+  fixture.hasOne({ name: 'layoutPosition', inverse: 'target', where: function(geometry) { return geometry.get('geometryType') == 'layout_position' } })
+  fixture.hasOne({ name: 'modalPosition', model: 'layoutPosition', inverse: 'target', where: function(geometry) { return geometry.get('geometryType') == 'modal_position' } })
 })
 
-RiverDB.Model.create('layoutPosition', 'layoutPositions', function(geometry) {
+LayoutPosition = RiverDB.Model.create('layoutPosition', 'layoutPositions', function(geometry) {
   geometry.belongsTo({ name: 'target', polymorphic: true })
 })
 
-Person = RiverDB.models.person
-Pet = RiverDB.models.pet
+var floor = new Floor
+floor.set('id', 1)
+floor.save()
 
-var b = new Person
-b.set('name', 'bob')
-b.set('id', 7)
-b.save()
+var floorGeometry = new LayoutPosition
+floorGeometry.set('targetId', 1)
+floorGeometry.set('targetType', 'floor')
+floorGeometry.save()
 
-var d = new Pet
-d.set('name', 'dog')
-d.set('ownerId', b.id)
-d.save()
-
-b.pets()
-
-var listener = {
-  modelWasUpdated: function(model) {
-    console.log('model ' + model.rdbModelName + ':' + model.id + ' was updated')
-  }
-}
-
-b.listen(listener)
-
-var p = Person.select(7)
-p.set('age', 28)
-p.save()
+console.log('floor geometry:')
+console.debug(floor.layoutPosition())
