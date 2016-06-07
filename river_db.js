@@ -1,3 +1,15 @@
+MemoryStorage = {
+  _data: { },
+
+  setItem: function(str, value) {
+    this._data[str] = value
+  },
+
+  getItem: function(str) {
+    return this._data[str]
+  }
+}
+
 /**************************************************
  * RiverDB.Model
  **************************************************/
@@ -5,7 +17,10 @@
 RiverDB = {
   collections: { },
   models: { },
-  _listeners: {}
+  config: {
+    storage: MemoryStorage
+  },
+  _listeners: { }
 }
 
 RiverDB._listenersFor = function(collectionName, clientId) {
@@ -48,7 +63,7 @@ RiverDB.rdbClone = function (obj) {
   if (obj instanceof Array) {
     copy = []
     for (var i = 0, len = obj.length; i < len; i++) {
-      copy[i] = clone(obj[i])
+      copy[i] = this.rdbClone(obj[i])
     }
     return copy
   }
@@ -57,7 +72,7 @@ RiverDB.rdbClone = function (obj) {
   if (obj instanceof Object) {
     copy = {}
     for (var attr in obj) {
-      if (obj.hasOwnProperty(attr)) copy[attr] = clone(obj[attr])
+      if (obj.hasOwnProperty(attr)) copy[attr] = this.rdbClone(obj[attr])
     }
     return copy
   }
@@ -66,7 +81,7 @@ RiverDB.rdbClone = function (obj) {
 }
 
 RiverDB.save = function(obj) {
-  this.collections[obj.rdbCollectionName].data[obj.rdbClientId] = this.rdbClone(obj.rdbAttributes)
+  this.collections[obj.rdbCollectionName].setItem(obj)
   var listeners = this._listenersFor(obj.rdbCollectionName, obj.rdbClientId)
   listeners.forEach(function(listener) {
     listener.modelWasUpdated()
@@ -85,9 +100,28 @@ RiverDB.Model.generateClientId = function() {
 }
 
 RiverDB.Collection = function(collectionName = null, modelName = null) {
-  this.data = { }
   this.modelName = modelName
   this.collectionName = collectionName
+
+  this.setItem = function(dataModel) {
+    var data = this.getData()
+    data[dataModel.rdbClientId] = dataModel.rdbAttributes
+    this.config.storage.setItem(this.collectionName, data)
+  }
+
+  this.getItem = function(clientId) {
+    return this.getData()[clientId]
+  }
+
+  this.getData = function() {
+    var data = this.config.storage.getItem(this.collectionName)
+    if (!data) {
+      data = { }
+      this.config.storage.setItem(this.collectionName, data)
+    }
+
+    return data
+  }
 }
 
 RiverDB.Model.create = function(modelName, collectionName, init) {
@@ -196,11 +230,12 @@ RiverDB.Model.select = function(modelName, test) {
   }
 
   var model = RiverDB.models[modelName]
-  var ids = Object.keys(RiverDB.collections[model.rdbCollectionName].data)
+  var collectionData = RiverDB.collections[model.rdbCollectionName].getData()
+  var ids = Object.keys(collectionData)
   for (var i = 0; i < ids.length; i++) {
     var clientId = ids[i]
     var item = new model
-    item.parseAttributes(RiverDB.collections[model.rdbCollectionName].data[clientId])
+    item.parseAttributes(collectionData[clientId])
     item.rdbClientId = clientId
     if (test(item)) { return item }
   }
@@ -209,12 +244,13 @@ RiverDB.Model.select = function(modelName, test) {
 
 RiverDB.Model.where = function(modelName, test) {
   var model = RiverDB.models[modelName]
-  var ids = Object.keys(RiverDB.collections[model.rdbCollectionName].data)
+  var collectionData = RiverDB.collections[model.rdbCollectionName].getData()
+  var ids = Object.keys(collectionData)
   var items = []
   for (var i = 0; i < ids.length; i++) {
     var clientId = ids[i]
     var item = new model
-    item.parseAttributes(RiverDB.collections[model.rdbCollectionName].data[clientId])
+    item.parseAttributes(collectionData[clientId])
     item.rdbClientId = clientId
     if (test(item)) { items.push(item) }
   }
@@ -229,7 +265,7 @@ RiverDB.Model.where = function(modelName, test) {
 Object.defineProperty(RiverDB.Model.prototype, 'id', { get: function () { return this.get('id') } })
 
 RiverDB.Model.prototype.reload = function() {
-  this.parseAttributes(RiverDB.collections[this.rdbCollectionName].data[this.rdbClientId])
+  this.parseAttributes(RiverDB.collections[this.rdbCollectionName].getItem(this.rdbClientId))
 }
 
 RiverDB.Model.prototype.modelWasUpdated = function() {
@@ -278,49 +314,3 @@ RiverDB.Model.prototype.stopListening = function(obj) {
     }
   }
 }
-
-/**************************************************
- * Example Models
- **************************************************/
-
-Store = RiverDB.Model.create('store', 'stores', function(store) {
-  store.hasMany('floors')
-})
-
-Floor = RiverDB.Model.create('floor', 'floors', function(floor) {
-  floor.belongsTo('store')
-  floor.hasMany('areas')
-  floor.hasMany('fixtures')
-  floor.hasOne({ name: 'layoutPosition', inverse: 'target' })
-})
-
-Area = RiverDB.Model.create('area', 'areas', function(area) {
-  area.belongsTo('store')
-  area.belongsTo('floor')
-  area.hasMany('fixtures')
-  area.hasOne({ name: 'layoutPosition', inverse: 'target' })
-})
-
-Fixture = RiverDB.Model.create('fixture', 'fixtures', function(fixture) {
-  fixture.belongsTo('store')
-  fixture.belongsTo('area')
-  fixture.hasMany('positions')
-  fixture.hasOne({ name: 'layoutPosition', inverse: 'target', where: function(geometry) { return geometry.get('geometryType') == 'layout_position' } })
-  fixture.hasOne({ name: 'modalPosition', model: 'layoutPosition', inverse: 'target', where: function(geometry) { return geometry.get('geometryType') == 'modal_position' } })
-})
-
-LayoutPosition = RiverDB.Model.create('layoutPosition', 'layoutPositions', function(geometry) {
-  geometry.belongsTo({ name: 'target', polymorphic: true })
-})
-
-var floor = new Floor
-floor.set('id', 1)
-floor.save()
-
-var floorGeometry = new LayoutPosition
-floorGeometry.set('targetId', 1)
-floorGeometry.set('targetType', 'floor')
-floorGeometry.save()
-
-console.log('floor geometry:')
-console.debug(floor.layoutPosition())
