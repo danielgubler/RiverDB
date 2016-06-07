@@ -106,7 +106,7 @@ RiverDB.Collection = function(collectionName = null, modelName = null) {
   this.setItem = function(dataModel) {
     var data = this.getData()
     data[dataModel.rdbClientId] = dataModel.rdbAttributes
-    this.config.storage.setItem(this.collectionName, data)
+    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data))
   }
 
   this.getItem = function(clientId) {
@@ -114,10 +114,10 @@ RiverDB.Collection = function(collectionName = null, modelName = null) {
   }
 
   this.getData = function() {
-    var data = this.config.storage.getItem(this.collectionName)
+    var data = JSON.parse(RiverDB.config.storage.getItem(this.collectionName))
     if (!data) {
       data = { }
-      this.config.storage.setItem(this.collectionName, data)
+      RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data))
     }
 
     return data
@@ -140,6 +140,7 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
   model.prototype.constructor = model
 
   model.select = function(test) { return RiverDB.Model.select(modelName, test) }
+  model.selectAll = function() { return RiverDB.Model.selectAll(modelName) }
   model.where = function(test) { return RiverDB.Model.where(modelName, test) }
 
   model.hasOne = function(options) {
@@ -217,6 +218,24 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
     }
   }
 
+  model._deserializers = { }
+  model.addDeserializer = function(name, deserializer) {
+    this._deserializers[name] = deserializer
+  }
+
+  model.deserialize = function(name, data) {
+    var deserializer = this._deserializers[name]
+    var deserializedModel = new this
+
+    deserializer(deserializedModel, data)
+    return deserializedModel
+  }
+
+  model._serializers = { }
+  model.addSerializer = function(name, serializer) {
+    this._serializers[name] = serializer
+  }
+
   RiverDB.collections[collectionName] = new RiverDB.Collection(collectionName, modelName)
 
   init(model)
@@ -240,6 +259,21 @@ RiverDB.Model.select = function(modelName, test) {
     if (test(item)) { return item }
   }
   return null
+}
+
+RiverDB.Model.selectAll = function(modelName) {
+  var model = RiverDB.models[modelName]
+  var collectionData = RiverDB.collections[model.rdbCollectionName].getData()
+  var ids = Object.keys(collectionData)
+  var items = []
+  for (var i = 0; i < ids.length; i++) {
+    var clientId = ids[i]
+    var item = new model
+    item.parseAttributes(collectionData[clientId])
+    item.rdbClientId = clientId
+    items.push(item)
+  }
+  return items
 }
 
 RiverDB.Model.where = function(modelName, test) {
@@ -313,4 +347,14 @@ RiverDB.Model.prototype.stopListening = function(obj) {
       RiverDB.stopListening(this.rdbCollectionName, this.rdbClientId, this)
     }
   }
+}
+
+RiverDB.Model.prototype.deserialize = function(name, data) {
+  var deserializer = RiverDB.models[this.rdbModelName]._deserializers[name]
+  deserializer(this, data)
+}
+
+RiverDB.Model.prototype.serialize = function(name) {
+  var serializer = RiverDB.models[this.rdbModelName]._serializers[name]
+  return serializer(this)
 }
