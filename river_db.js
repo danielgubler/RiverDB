@@ -109,6 +109,16 @@ RiverDB.Collection = function(collectionName = null, modelName = null) {
     RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data))
   }
 
+  this.clearItem = function(dataModel) {
+    var data = this.getData()
+    data[dataModel.rdbClientId] = dataModel.rdbAttributes
+    RiverDB.config.storage.removeItem(this.collectionName)
+  }
+
+  this.clearData = function() {
+    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify({ }))
+  }
+
   this.getItem = function(clientId) {
     return this.getData()[clientId]
   }
@@ -125,11 +135,17 @@ RiverDB.Collection = function(collectionName = null, modelName = null) {
 }
 
 RiverDB.Model.create = function(modelName, collectionName, init) {
-  RiverDB.models[modelName] = function() {
+  RiverDB.models[modelName] = function(attrs) {
     RiverDB.Model.call(this)
     this.rdbClientId = RiverDB.Model.generateClientId()
     this.rdbModelName = modelName
     this.rdbCollectionName = collectionName
+
+    if (attrs) {
+      for (var attr in attrs) {
+        this.set(attr, attrs[attr])
+      }
+    }
   }
 
   var model = RiverDB.models[modelName]
@@ -141,6 +157,8 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
 
   model.select = function(test) { return RiverDB.Model.select(modelName, test) }
   model.selectAll = function() { return RiverDB.Model.selectAll(modelName) }
+  model.clear = function(test) { return RiverDB.Model.clear(modelName, test) }
+  model.clearAll = function() { return RiverDB.Model.clearAll(modelName) }
   model.where = function(test) { return RiverDB.Model.where(modelName, test) }
 
   model.hasOne = function(options) {
@@ -274,6 +292,25 @@ RiverDB.Model.selectAll = function(modelName) {
     items.push(item)
   }
   return items
+}
+
+RiverDB.Model.clearAll = function(modelName) {
+  var model = RiverDB.models[modelName]
+  var collectionData = RiverDB.collections[model.rdbCollectionName].clearData()
+}
+
+RiverDB.Model.clear = function(modelName, test) {
+  var model = RiverDB.models[modelName]
+  var collection = RiverDB.collections[model.rdbCollectionName]
+  var collectionData = collection.getData()
+  var ids = Object.keys(collectionData)
+  for (var i = 0; i < ids.length; i++) {
+    var clientId = ids[i]
+    var item = new model
+    item.parseAttributes(collectionData[clientId])
+    item.rdbClientId = clientId
+    if (test(item)) { collection.clearItem(item) }
+  }
 }
 
 RiverDB.Model.where = function(modelName, test) {
