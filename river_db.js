@@ -356,8 +356,9 @@ RiverDB.Model.prototype.set = function(attr, value) {
   if (typeof attr == 'string') {
     this.rdbAttributes[attr] = value
 
-    if (!this.__proto__.hasOwnProperty(attr)) {
-      Object.defineProperty(this.__proto__, attr, {
+    var proto = Object.getPrototypeOf(this)
+    if (!proto.hasOwnProperty(attr)) {
+      Object.defineProperty(proto, attr, {
         get: function() {
           return this.get(attr);
         },
