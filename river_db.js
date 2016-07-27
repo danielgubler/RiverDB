@@ -355,6 +355,17 @@ RiverDB.Model.prototype.get = function(attr) {
 RiverDB.Model.prototype.set = function(attr, value) {
   if (typeof attr == 'string') {
     this.rdbAttributes[attr] = value
+
+    if (!this.__proto__.hasOwnProperty(attr)) {
+      Object.defineProperty(this.__proto__, attr, {
+        get: function() {
+          return this.get(attr);
+        },
+        set: function(newValue) {
+          this.set(attr, newValue)
+        }
+      });
+    }
   } else {
     // TODO: attr could be an object containing multiple attributes
   }
