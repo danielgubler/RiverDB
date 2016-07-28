@@ -236,6 +236,24 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
     }
   }
 
+  model.hasProperty = function(name, options) {
+    if (model.prototype.hasOwnProperty(name)) { return }
+
+    options = options || {}
+
+    Object.defineProperty(model.prototype, name, {
+      get: function() {
+        if (options.get) { return options.get.call(this) }
+        return this.get(name)
+      },
+      set: function(newValue) {
+        if (options.readOnly) { return }
+        // TODO: implement validators
+        this.set(name, newValue)
+      }
+    })
+  }
+
   model._deserializers = { }
   model.addDeserializer = function(name, deserializer) {
     this._deserializers[name] = deserializer
