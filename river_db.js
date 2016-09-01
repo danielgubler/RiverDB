@@ -1,415 +1,337 @@
 MemoryStorage = {
-  _data: { },
-
-  setItem: function(str, value) {
-    this._data[str] = value
-  },
+  _data: {},
 
   getItem: function(str) {
-    return this._data[str]
+    return this._data[str];
+  },
+
+  setItem: function(str, value) {
+    this._data[str] = value;
   }
-}
+};
+
+RiverDB = {
+  config: {
+    storage: MemoryStorage
+  }
+};
+
+RiverDB.rdbClone = function(obj) {
+  let copy;
+
+  // Handle the 3 simple types, and null or undefined
+  if (obj == null || typeof obj == "object") { return obj; }
+
+  // Handle Date
+  if (obj instanceof Date) {
+    copy = new Date();
+    copy.setTime(obj.getTime());
+    return copy;
+  }
+
+  // Handle Array
+  if (obj instanceof Array) {
+    copy = [];
+    for (let i = 0, len = obj.length; i < len; i++) {
+      copy[i] = this.rdbClone(obj[i]);
+    }
+    return copy;
+  }
+
+  // Handle Object
+  if (obj instanceof Object) {
+    copy = {};
+    for (let attr in obj) {
+      if (obj.hasOwnProperty(attr)) {
+        copy[attr] = this.rdbClone(obj[attr]);
+      }
+    }
+    return copy;
+  }
+
+  throw new Error("Unable to copy obj! Its type isn't supported.");
+};
+
+/**************************************************
+ * RiverDB.Collection
+ **************************************************/
+
+RiverDB.Collection = class Collection {
+  constructor(collectionName, modelName) {
+    this.collectionName = collectionName;
+    this.modelName = modelName;
+  }
+
+  static listen(listener) {
+    this.listeners = this.listeners || new Set();
+    this.listeners.add(listener);
+  }
+
+  getData() {
+    let data = JSON.parse(RiverDB.config.storage.getItem(this.collectionName));
+
+    if (!data) {
+      data = {};
+      RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data));
+    }
+
+    return data;
+  }
+
+  getItem(clientId) {
+    return this.getData()[clientId];
+  }
+
+  setItem(model) {
+    let data = this.getData();
+
+    let didExist = data[model.rdbClientId] != null;
+
+    data[model.rdbClientId] = model.rdbAttributes;
+    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data));
+
+    if (this.constructor.listeners) {
+      for (let listener of this.constructor.listeners) {
+        let method = this.modelName + (didExist ? "WasUpdated" : "WasAdded");
+        if (listener[method]) {
+          listener[method](model);
+        }
+      }
+    }
+  }
+
+  clearItem(model) {
+    let data = this.getData();
+
+    delete data[model.rdbClientId];
+
+    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data));
+
+    if (this.constructor.listeners) {
+      for (let listener of this.constructor.listeners) {
+        let method = this.modelName + "WasDeleted";
+        if (listener[method]) {
+          listener[method](model);
+        }
+      }
+    }
+  }
+
+  clearData() {
+    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify({}));
+
+    if (this.constructor.listeners) {
+      for (let listener of this.constructor.listeners) {
+        let method = this.collectionName + "WereCleared";
+        if (listener[method]) {
+          listener[method]();
+        }
+      }
+    }
+  }
+};
 
 /**************************************************
  * RiverDB.Model
  **************************************************/
 
-RiverDB = {
-  collections: { },
-  models: { },
-  config: {
-    storage: MemoryStorage
-  },
-  _listeners: { }
-}
-
-RiverDB._listenersFor = function(collectionName, clientId) {
-  this._listeners[collectionName] = this._listeners[collectionName] || { }
-  this._listeners[collectionName][clientId] = this._listeners[collectionName][clientId] || []
-  return this._listeners[collectionName][clientId]
-}
-
-RiverDB.listen = function(collectionName, clientId, obj) {
-  var listeners = this._listenersFor(collectionName, clientId)
-  if (listeners.indexOf(obj) == -1) { listeners.push(obj) }
-}
-
-RiverDB.stopListening = function(collectionName, clientId, obj) {
-  var listeners = this._listenersFor(collectionName, clientId)
-  var index = listeners.indexOf(obj)
-  if (index != -1) { listeners.splice(index, 1) }
-}
-
-RiverDB.Model = function() {
-  this.rdbClientId = null
-  this.rdbAttributes = { }
-  this.rdbListeners = []
-}
-
-RiverDB.rdbClone = function (obj) {
-  var copy
-
-  // Handle the 3 simple types, and null or undefined
-  if (obj == null || typeof obj == 'object') { return obj }
-
-  // Handle Date
-  if (obj instanceof Date) {
-    copy = new Date()
-    copy.setTime(obj.getTime())
-    return copy
-  }
-
-  // Handle Array
-  if (obj instanceof Array) {
-    copy = []
-    for (var i = 0, len = obj.length; i < len; i++) {
-      copy[i] = this.rdbClone(obj[i])
-    }
-    return copy
-  }
-
-  // Handle Object
-  if (obj instanceof Object) {
-    copy = {}
-    for (var attr in obj) {
-      if (obj.hasOwnProperty(attr)) copy[attr] = this.rdbClone(obj[attr])
-    }
-    return copy
-  }
-
-  throw new Error("Unable to copy obj! Its type isn't supported.")
-}
-
-RiverDB.save = function(obj) {
-  this.collections[obj.rdbCollectionName].setItem(obj)
-  var listeners = this._listenersFor(obj.rdbCollectionName, obj.rdbClientId)
-  listeners.forEach(function(listener) {
-    listener.modelWasUpdated()
-  })
-}
-
-/**************************************************
- * RiverDB.Model class methods
- **************************************************/
-
-RiverDB.Model.generateClientId = function() {
-  return 'rdbClientId' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-    var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8)
-    return v.toString(16)
-  })
-}
-
-RiverDB.Collection = function(collectionName = null, modelName = null) {
-  this.modelName = modelName
-  this.collectionName = collectionName
-
-  this.setItem = function(dataModel) {
-    var data = this.getData()
-    data[dataModel.rdbClientId] = dataModel.rdbAttributes
-    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data))
-  }
-
-  this.clearItem = function(dataModel) {
-    var data = this.getData()
-    data[dataModel.rdbClientId] = dataModel.rdbAttributes
-    RiverDB.config.storage.removeItem(this.collectionName)
-  }
-
-  this.clearData = function() {
-    RiverDB.config.storage.setItem(this.collectionName, JSON.stringify({ }))
-  }
-
-  this.getItem = function(clientId) {
-    return this.getData()[clientId]
-  }
-
-  this.getData = function() {
-    var data = JSON.parse(RiverDB.config.storage.getItem(this.collectionName))
-    if (!data) {
-      data = { }
-      RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data))
+RiverDB.Model = class Model {
+  constructor(attrs) {
+    if (new.target === RiverDB.Model) {
+      throw new TypeError("RiverDB.Model should not be constructed directly");
     }
 
-    return data
-  }
-}
-
-RiverDB.Model.create = function(modelName, collectionName, init) {
-  RiverDB.models[modelName] = function(attrs) {
-    RiverDB.Model.call(this)
-    this.rdbClientId = RiverDB.Model.generateClientId()
-    this.rdbModelName = modelName
-    this.rdbCollectionName = collectionName
+    this.rdbAttributes = {};
+    this.rdbClientId = RiverDB.Model.generateClientId();
 
     if (attrs) {
-      for (var attr in attrs) {
-        this.set(attr, attrs[attr])
+      for (let attr in attrs) {
+        this.setAttr(attr, attrs[attr]);
       }
     }
   }
 
-  var model = RiverDB.models[modelName]
-  model.rdbModelName = modelName
-  model.rdbCollectionName = collectionName
+  getAttr(attr) {
+    return this.rdbAttributes[attr];
+  }
 
-  model.prototype = Object.create(RiverDB.Model.prototype)
-  model.prototype.constructor = model
+  setAttr(attr, value) {
+    this.rdbAttributes[attr] = value;
+  }
 
-  model.select = function(test) { return RiverDB.Model.select(modelName, test) }
-  model.selectAll = function() { return RiverDB.Model.selectAll(modelName) }
-  model.clear = function(test) { return RiverDB.Model.clear(modelName, test) }
-  model.clearAll = function() { return RiverDB.Model.clearAll(modelName) }
-  model.where = function(test) { return RiverDB.Model.where(modelName, test) }
+  get id() {
+    return this.getAttr("id");
+  }
 
-  model.hasOne = function(options) {
-    if ((typeof options) == 'string') { options = { name: options } }
+  static create(modelName, collectionName, init) { // AKA ModelFactory
+    let newClass = class extends RiverDB.Model {};
+    newClass.rdbModelName = modelName;
+    newClass.rdbCollectionName = collectionName;
+    newClass.rdbCollection = new RiverDB.Collection(collectionName, modelName);
 
-    model.fields = model.fields || { }
-    model.fields[options.name] = options
+    init(newClass);
 
-    var inverse = options.inverse || modelName
-    var parentModel = options.model || options.name
+    return newClass;
+  }
 
-    model.prototype[options.name] = function() {
-      var self = this
-      var association = RiverDB.models[parentModel]
-      var inversePolymorphic = false
-      try { inversePolymorphic = association.fields[inverse].polymorphic } catch (e) { }
+  static generateClientId() { // todo: should this be here
+    return "rdbClientId" + "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+      let r = Math.random() * 16 | 0;
+      let v = (c == "x") ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
 
-      return association.select(function(child) {
-        if (inversePolymorphic && child.get(inverse + 'Type') != self.rdbModelName) { return false }
-        var childParentId = child.get(inverse + 'Id')
-        if (!childParentId) { return false }
-        var withinScope = !options.where || options.where(child)
-        if (typeof childParentId == 'string' && childParentId.startsWith('rdbClientId')) {
-          return childParentId == self.rdbClientId && withinScope
-        } else {
-          return childParentId == self.id && withinScope
-        }
-      })
+  static select(test) {
+    let singleSelect = (typeof test == "number" || typeof test == "string");
+
+    if (singleSelect) {
+      let id = test;
+      test = function(item) { return item.id == id || item.rdbClientId == id; };
+    }
+
+    let results = [];
+
+    let collectionData = this.rdbCollection.getData();
+    for (let clientId in collectionData) {
+      let item = new this();
+      item.parseAttributes(collectionData[clientId]);
+      item.rdbClientId = clientId;
+      if (test == null || test(item)) {
+        if (singleSelect) { return item; }
+        results.push(item);
+      }
+    }
+
+    return results;
+  }
+
+  static clear(test) {
+    if (!test) {
+      this.rdbCollection.clearData();
+      return;
+    }
+
+    let singleSelect = (typeof test == "number" || typeof test == "string");
+
+    if (singleSelect) {
+      let id = test;
+      test = function(item) { return item.id == id || item.rdbClientId == id; };
+    }
+
+    let collectionData = this.rdbCollection.getData();
+    for (let clientId in collectionData) {
+      let item = new this();
+      item.parseAttributes(collectionData[clientId]);
+      item.rdbClientId = clientId;
+      if (test(item)) {
+        this.rdbCollection.clearItem(item);
+        if (singleSelect) { return; }
+      }
     }
   }
 
-  model.hasMany = function(options) {
-    if ((typeof options) == 'string') { options = { name: options } }
+  static hasProperty(name, options) {
+    if (this.prototype.hasOwnProperty(name)) { return; }
 
-    model.fields = model.fields || { }
-    model.fields[options.name] = options
+    options = options || {};
 
-    var inverse = options.inverse || modelName
-
-    model.prototype[options.name] = function() {
-      var self = this
-      var inversePolymorphic = false
-      try { inversePolymorphic = association.fields[inverse].polymorphic } catch (e) { }
-      var parentModel = options.model || RiverDB.collections[options.name].modelName
-      var association = RiverDB.models[parentModel]
-
-      return association.where(function(child) {
-        if (inversePolymorphic && child[inverse + 'Type'] != self.rdbModelName) { return false }
-        var childParentId = child.get(inverse + 'Id')
-        if (!childParentId) { return false }
-        var withinScope = !options.where || options.where(child)
-        if (typeof childParentId == 'string' && childParentId.startsWith('rdbClientId')) {
-          return childParentId == self.rdbClientId && withinScope
-        } else {
-          return childParentId == self.id && withinScope
-        }
-      })
-    }
-  }
-
-  model.belongsTo = function(options) {
-    if ((typeof options) == 'string') { options = { name: options } }
-
-    model.fields = model.fields || { }
-    model.fields[options.name] = options
-
-    var parentModel = options.model || options.name
-
-    model.prototype[options.name] = function() {
-      var parentId = this.get(options.name + 'Id')
-      if (!parentId) { return null }
-      var associatedModel = options.polymorphic ? this.get(options.name + 'Type') : parentModel
-      var association = RiverDB.models[associatedModel]
-      return association ? association.select(parentId) : null
-    }
-  }
-
-  model.hasProperty = function(name, options) {
-    if (model.prototype.hasOwnProperty(name)) { return }
-
-    options = options || {}
-
-    Object.defineProperty(model.prototype, name, {
+    Object.defineProperty(this.prototype, name, {
       get: function() {
-        if (options.get) { return options.get.call(this) }
-        return this.get(name)
+        if (options.get) { return options.get.call(this); }
+        return this.getAttr(name);
       },
       set: function(newValue) {
-        if (options.readOnly) { return }
-        // TODO: implement validators
-        this.set(name, newValue)
+        if (options.readOnly) { return; }
+        // todo: implement validators
+        this.setAttr(name, newValue);
       }
-    })
+    });
   }
 
-  model._deserializers = { }
-  model.addDeserializer = function(name, deserializer) {
-    this._deserializers[name] = deserializer
+  // todo: polymorphic relationships
+  // todo: apparently can't use model names as globals aren't hoisted
+  static hasMany(model) {
+    let thisModel = this;
+    this.prototype[model.rdbCollectionName] = function() {
+      return model.selectAll((item) => item[thisModel.rdbModelName + "Id"] == this.id);
+    };
   }
 
-  model.deserialize = function(name, data) {
-    var deserializer = this._deserializers[name]
-    var deserializedModel = new this
-
-    deserializer(deserializedModel, data)
-    return deserializedModel
+  static hasOne(model) { // todo: wrap head around hasOne/belongsTo
+    let thisModel = this;
+    this.prototype[model.rdbModelName] = function() {
+      return model.select((item) => item[thisModel.rdbModelName + "Id"] == this.id);
+    };
   }
 
-  model._serializers = { }
-  model.addSerializer = function(name, serializer) {
-    this._serializers[name] = serializer
+  static belongsTo(model) {
+    this.prototype[model.rdbModelName] = function() {
+      return model.select(this[model.rdbModelName + "Id"]);
+    };
   }
 
-  RiverDB.collections[collectionName] = new RiverDB.Collection(collectionName, modelName)
-
-  init(model)
-  return model
-}
-
-RiverDB.Model.select = function(modelName, test) {
-  if (typeof test == 'number' || typeof test == 'string') {
-    var id = test
-    test = function(i) { return item.id == id || item.rdbClientId == id }
+  static listen(listener) {
+    this.rdbCollection.listen(listener);
   }
 
-  var model = RiverDB.models[modelName]
-  var collectionData = RiverDB.collections[model.rdbCollectionName].getData()
-  var ids = Object.keys(collectionData)
-  for (var i = 0; i < ids.length; i++) {
-    var clientId = ids[i]
-    var item = new model
-    item.parseAttributes(collectionData[clientId])
-    item.rdbClientId = clientId
-    if (test(item)) { return item }
-  }
-  return null
-}
-
-RiverDB.Model.selectAll = function(modelName) {
-  var model = RiverDB.models[modelName]
-  var collectionData = RiverDB.collections[model.rdbCollectionName].getData()
-  var ids = Object.keys(collectionData)
-  var items = []
-  for (var i = 0; i < ids.length; i++) {
-    var clientId = ids[i]
-    var item = new model
-    item.parseAttributes(collectionData[clientId])
-    item.rdbClientId = clientId
-    items.push(item)
-  }
-  return items
-}
-
-RiverDB.Model.clearAll = function(modelName) {
-  var model = RiverDB.models[modelName]
-  var collectionData = RiverDB.collections[model.rdbCollectionName].clearData()
-}
-
-RiverDB.Model.clear = function(modelName, test) {
-  var model = RiverDB.models[modelName]
-  var collection = RiverDB.collections[model.rdbCollectionName]
-  var collectionData = collection.getData()
-  var ids = Object.keys(collectionData)
-  for (var i = 0; i < ids.length; i++) {
-    var clientId = ids[i]
-    var item = new model
-    item.parseAttributes(collectionData[clientId])
-    item.rdbClientId = clientId
-    if (test(item)) { collection.clearItem(item) }
-  }
-}
-
-RiverDB.Model.where = function(modelName, test) {
-  var model = RiverDB.models[modelName]
-  var collectionData = RiverDB.collections[model.rdbCollectionName].getData()
-  var ids = Object.keys(collectionData)
-  var items = []
-  for (var i = 0; i < ids.length; i++) {
-    var clientId = ids[i]
-    var item = new model
-    item.parseAttributes(collectionData[clientId])
-    item.rdbClientId = clientId
-    if (test(item)) { items.push(item) }
-  }
-  return items
-}
-
-/**************************************************
- * RiverDB.Model instance methods
- **************************************************/
-
-// TODO: I don't believe defineProperty works in IE
-Object.defineProperty(RiverDB.Model.prototype, 'id', { get: function () { return this.get('id') } })
-
-RiverDB.Model.prototype.reload = function() {
-  this.parseAttributes(RiverDB.collections[this.rdbCollectionName].getItem(this.rdbClientId))
-}
-
-RiverDB.Model.prototype.modelWasUpdated = function() {
-  // TODO: expose an option to turn off auto reload
-  this.reload()
-  var self = this
-  this.rdbListeners.forEach(function(listener) {
-    if (listener.modelWasUpdated) { listener.modelWasUpdated(self) }
-  })
-}
-
-RiverDB.Model.prototype.get = function(attr) {
-  return this.rdbAttributes[attr]
-}
-
-RiverDB.Model.prototype.set = function(attr, value) {
-  if (typeof attr == 'string') {
-    this.rdbAttributes[attr] = value
-  } else {
-    // TODO: attr could be an object containing multiple attributes
+  listen(listener) {
+    this.rdbListeners = this.rdbListeners || new Set();
+    this.rdbListeners.add(listener);
   }
 
-  return this
-}
+  static addSerializer(name, serializer) {
+    this.rdbSerializers = this.rdbSerializers || {};
+    this.rdbSerializers[name] = serializer;
+  }
 
-RiverDB.Model.prototype.save = function() {
-  // TODO: rather than replacing the object outright, set each attribute, so if the new model is missing attributes, the old model's attrs will be kept
-  RiverDB.save(this)
-}
+  static addDeserializer(name, deserializer) {
+    this.rdbDeserializers = this.rdbDeserializers || {};
+    this.rdbDeserializers[name] = deserializer;
+  }
 
-RiverDB.Model.prototype.parseAttributes = function(attrs) {
-  this.rdbAttributes = RiverDB.rdbClone(attrs)
-}
+  static deserialize(data) { // todo: should we have both class and instance deserialize?
+    let deserializer = this.rdbDeserializers[name];
+    let newModel = new this();
+    deserializer(newModel, data);
+    return newModel;
+  }
 
-RiverDB.Model.prototype.listen = function(obj) {
-  if (this.rdbListeners.indexOf(obj) == -1) { this.rdbListeners.push(obj) }
-  RiverDB.listen(this.rdbCollectionName, this.rdbClientId, this)
-}
+  deserialize(name, data) {
+    let deserializer = this.constructor.rdbDeserializers[name];
+    deserializer(this, data);
+  }
 
-RiverDB.Model.prototype.stopListening = function(obj) {
-  let index = this.rdbListeners.indexOf(obj)
-  if (index != -1) {
-    this.rdbListeners.splice(index, 1)
-    if (this.rdbListeners.length == 0) {
-      RiverDB.stopListening(this.rdbCollectionName, this.rdbClientId, this)
+  serialize(name) {
+    let serializer = this.constructor.rdbSerializers[name];
+    return serializer(this);
+  }
+
+  parseAttributes(attrs) {
+    this.rdbAttributes = RiverDB.rdbClone(attrs);
+  }
+
+  reload() {
+    this.parseAttributes(this.constructor.rdbCollection.getItem(this.rdbClientId));
+  }
+
+  save() {
+    // TODO: rather than replacing the object outright, set each attribute,
+    // so if the new model is missing attributes, the old model's attrs will be kept
+    this.constructor.rdbCollection.setItem(this);
+
+    // todo: should we even have per-model listeners?
+    if (this.rdbListeners) {
+      for (let listener of this.rdbListeners) {
+        let method = this.constructor.rdbModelName + "WasUpdated";
+        if (listener[method]) {
+          listener[method](this);
+        }
+      }
     }
   }
-}
 
-RiverDB.Model.prototype.deserialize = function(name, data) {
-  var deserializer = RiverDB.models[this.rdbModelName]._deserializers[name]
-  deserializer(this, data)
-}
-
-RiverDB.Model.prototype.serialize = function(name) {
-  var serializer = RiverDB.models[this.rdbModelName]._serializers[name]
-  return serializer(this)
-}
+  delete() {
+    this.constructor.rdbCollection.clearItem(this);
+  }
+};
