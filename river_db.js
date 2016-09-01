@@ -141,6 +141,14 @@ RiverDB.Model = class Model {
       throw new TypeError("RiverDB.Model should not be constructed directly");
     }
 
+    if (!(this.constructor.rdbModelName && this.constructor.rdbCollectionName)) {
+      throw new Error("Attempt to instantiate unnamed RiverDB model");
+    }
+
+    if (!this.constructor.rdbCollection) { // todo: can we move this?
+      this.constructor.createCollection();
+    }
+
     this.rdbAttributes = {};
     this.rdbClientId = RiverDB.Model.generateClientId();
 
@@ -163,15 +171,8 @@ RiverDB.Model = class Model {
     return this.getAttr("id");
   }
 
-  static create(modelName, collectionName, init) { // AKA ModelFactory
-    let newClass = class extends RiverDB.Model {};
-    newClass.rdbModelName = modelName;
-    newClass.rdbCollectionName = collectionName;
-    newClass.rdbCollection = new RiverDB.Collection(collectionName, modelName);
-
-    init(newClass);
-
-    return newClass;
+  static createCollection() {
+    this.rdbCollection = new RiverDB.Collection(this.rdbCollectionName, this.rdbModelName);
   }
 
   static generateClientId() { // todo: should this be here
