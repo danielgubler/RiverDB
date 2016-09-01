@@ -2,44 +2,76 @@
  * Example Models
  **************************************************/
 
-Store = RiverDB.Model.create('store', 'stores', function(store) {
-  store.hasMany('floors')
+// Store
+
+class Store extends RiverDB.Model {
+  static get rdbModelName() { return "store" }
+  static get rdbCollectionName() { return "stores" }
+}
+
+Store.hasMany("floors")
+
+// Floor
+
+class Floor extends RiverDB.Model {
+  static get rdbModelName() { return "floor" }
+  static get rdbCollectionName() { return "floor" }
+}
+Floor.belongsTo('store')
+Floor.hasMany('areas')
+Floor.hasMany('fixtures')
+Floor.hasOne({ name: 'layoutPosition', inverse: 'target' })
+
+// Area
+
+class Area extends RiverDB.Model {
+  static get rdbModelName() { return "area" }
+  static get rdbCollectionName() { return "areas" }
+}
+
+Area.belongsTo('store')
+Area.belongsTo('floor')
+Area.hasMany('fixtures')
+Area.hasOne({ name: 'layoutPosition', inverse: 'target' })
+
+// Fixture
+
+class Fixture extends RiverDB.Model {
+  static get rdbModelName() { return "fixture" }
+  static get rdbCollectionName() { return "fixtures" }
+}
+
+Fixture.belongsTo('store')
+Fixture.belongsTo('area')
+Fixture.hasMany('positions')
+Fixture.hasOne({
+  name: 'layoutPosition',
+  inverse: 'target',
+  where: function(geometry) {
+    return geometry.get('geometryType') == 'layout_position'
+  }
 })
 
-Floor = RiverDB.Model.create('floor', 'floors', function(floor) {
-  floor.belongsTo('store')
-  floor.hasMany('areas')
-  floor.hasMany('fixtures')
-  floor.hasOne({ name: 'layoutPosition', inverse: 'target' })
-})
+// Layout
 
-Area = RiverDB.Model.create('area', 'areas', function(area) {
-  area.belongsTo('store')
-  area.belongsTo('floor')
-  area.hasMany('fixtures')
-  area.hasOne({ name: 'layoutPosition', inverse: 'target' })
-})
+class LayoutPosition extends RiverDB.Model {
+  static get rdbModelName() { return "layoutPosition" }
+  static get rdbCollectionName() { return "layoutPositions" }
+}
 
-Fixture = RiverDB.Model.create('fixture', 'fixtures', function(fixture) {
-  fixture.belongsTo('store')
-  fixture.belongsTo('area')
-  fixture.hasMany('positions')
-  fixture.hasOne({ name: 'layoutPosition', inverse: 'target', where: function(geometry) { return geometry.get('geometryType') == 'layout_position' } })
-  fixture.hasOne({ name: 'modalPosition', model: 'layoutPosition', inverse: 'target', where: function(geometry) { return geometry.get('geometryType') == 'modal_position' } })
-})
+LayoutPosition.belongsTo({ name: 'target', polymorphic: true })
 
-LayoutPosition = RiverDB.Model.create('layoutPosition', 'layoutPositions', function(geometry) {
-  geometry.belongsTo({ name: 'target', polymorphic: true })
-})
+/**************************************************
+ * Example Usage
+ **************************************************/
 
-var floor = new Floor
-floor.set('id', 1)
+let floor = new Floor()
+floor.setAttr('id', 1)
 floor.save()
 
-var floorGeometry = new LayoutPosition
-floorGeometry.set('targetId', 1)
-floorGeometry.set('targetType', 'floor')
+let floorGeometry = new LayoutPosition()
+floorGeometry.setAttr('targetId', 1)
+floorGeometry.setAttr('targetType', 'floor')
 floorGeometry.save()
 
-console.log('floor geometry:')
-console.debug(floor.layoutPosition())
+console.log('floor geometry:', floor.layoutPosition())
