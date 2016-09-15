@@ -93,7 +93,7 @@ RiverDB.save = function(obj) {
  **************************************************/
 
 RiverDB.Model.generateClientId = function() {
-  return 'rdbClientId' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+  return 'rdbClientId' + 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
     var r = Math.random()*16|0, v = c == 'x' ? r : (r&0x3|0x8)
     return v.toString(16)
   })
@@ -124,7 +124,8 @@ RiverDB.Collection = function(collectionName = null, modelName = null) {
   }
 
   this.getData = function() {
-    var data = JSON.parse(RiverDB.config.storage.getItem(this.collectionName))
+    var dataString = RiverDB.config.storage.getItem(this.collectionName)
+    var data = dataString ? JSON.parse(dataString) : null
     if (!data) {
       data = { }
       RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data))
@@ -155,6 +156,7 @@ RiverDB.Model.create = function(modelName, collectionName, init) {
   model.prototype = Object.create(RiverDB.Model.prototype)
   model.prototype.constructor = model
 
+  // this is because 'class' methods, such as RiverDB.Model.select don't get inherited, so we need to recreate them on the new, child model
   model.select = function(test) { return RiverDB.Model.select(modelName, test) }
   model.selectAll = function() { return RiverDB.Model.selectAll(modelName) }
   model.clear = function(test) { return RiverDB.Model.clear(modelName, test) }
@@ -395,7 +397,7 @@ RiverDB.Model.prototype.listen = function(obj) {
 }
 
 RiverDB.Model.prototype.stopListening = function(obj) {
-  let index = this.rdbListeners.indexOf(obj)
+  var index = this.rdbListeners.indexOf(obj)
   if (index != -1) {
     this.rdbListeners.splice(index, 1)
     if (this.rdbListeners.length == 0) {
