@@ -154,21 +154,21 @@ RiverDB.Model = class Model {
 
     if (attrs) {
       for (let attr in attrs) {
-        this.setAttr(attr, attrs[attr]);
+        this.set(attr, attrs[attr]);
       }
     }
   }
 
-  getAttr(attr) {
+  get(attr) {
     return this.rdbAttributes[attr];
   }
 
-  setAttr(attr, value) {
+  set(attr, value) {
     this.rdbAttributes[attr] = value;
   }
 
   get id() {
-    return this.getAttr("id");
+    return this.get("id");
   }
 
   static createCollection() {
@@ -240,12 +240,12 @@ RiverDB.Model = class Model {
     Object.defineProperty(this.prototype, name, {
       get: function() {
         if (options.get) { return options.get.call(this); }
-        return this.getAttr(name);
+        return this.get(name);
       },
       set: function(newValue) {
         if (options.readOnly) { return; }
         // todo: implement validators
-        this.setAttr(name, newValue);
+        this.set(name, newValue);
       }
     });
   }

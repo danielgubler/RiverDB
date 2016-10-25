@@ -66,12 +66,12 @@ LayoutPosition.belongsTo({ name: 'target', polymorphic: true })
  **************************************************/
 
 let floor = new Floor()
-floor.setAttr('id', 1)
+floor.set("id", 1)
 floor.save()
 
 let floorGeometry = new LayoutPosition()
-floorGeometry.setAttr('targetId', 1)
-floorGeometry.setAttr('targetType', 'floor')
+floorGeometry.set("targetId", 1)
+floorGeometry.set("targetType", "floor")
 floorGeometry.save()
 
-console.log('floor geometry:', floor.layoutPosition())
+console.log("floor geometry:", floor.layoutPosition())
