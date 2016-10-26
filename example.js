@@ -2,76 +2,162 @@
  * Example Models
  **************************************************/
 
-// Store
+// User
 
-class Store extends RiverDB.Model {
-  static get rdbModelName() { return "store" }
-  static get rdbCollectionName() { return "stores" }
-}
+class User extends RiverDB.Model {
+  static get rdbModelName() { return "user" }
+  static get rdbCollectionName() { return "users" }
 
-Store.hasMany("floors")
-
-// Floor
-
-class Floor extends RiverDB.Model {
-  static get rdbModelName() { return "floor" }
-  static get rdbCollectionName() { return "floor" }
-}
-Floor.belongsTo('store')
-Floor.hasMany('areas')
-Floor.hasMany('fixtures')
-Floor.hasOne({ name: 'layoutPosition', inverse: 'target' })
-
-// Area
-
-class Area extends RiverDB.Model {
-  static get rdbModelName() { return "area" }
-  static get rdbCollectionName() { return "areas" }
-}
-
-Area.belongsTo('store')
-Area.belongsTo('floor')
-Area.hasMany('fixtures')
-Area.hasOne({ name: 'layoutPosition', inverse: 'target' })
-
-// Fixture
-
-class Fixture extends RiverDB.Model {
-  static get rdbModelName() { return "fixture" }
-  static get rdbCollectionName() { return "fixtures" }
-}
-
-Fixture.belongsTo('store')
-Fixture.belongsTo('area')
-Fixture.hasMany('positions')
-Fixture.hasOne({
-  name: 'layoutPosition',
-  inverse: 'target',
-  where: function(geometry) {
-    return geometry.get('geometryType') == 'layout_position'
+  static get rdbProperties() {
+    return {
+      name: String,
+      email: String
+    }
   }
-})
 
-// Layout
-
-class LayoutPosition extends RiverDB.Model {
-  static get rdbModelName() { return "layoutPosition" }
-  static get rdbCollectionName() { return "layoutPositions" }
+  static get rdbRelationships() {
+    return [
+      { type: "hasMany", target: Post },
+      { type: "hasMany", target: Video },
+      { type: "hasMany", target: Comment },
+    ]
+  }
 }
 
-LayoutPosition.belongsTo({ name: 'target', polymorphic: true })
+// Post
+
+class Post extends RiverDB.Model {
+  static get rdbModelName() { return "post" }
+  static get rdbCollectionName() { return "posts" }
+
+  static get rdbProperties() {
+    return {
+      title: String,
+      body: String
+    }
+  }
+
+  static get rdbRelationships() {
+    return [
+      { type: "belongsTo", target: User },
+      { type: "hasMany", target: Comment, inverse: "commentable" },
+    ]
+  }
+}
+
+// Video
+
+class Video extends RiverDB.Model {
+  static get rdbModelName() { return "video" }
+  static get rdbCollectionName() { return "videos" }
+
+  static get rdbProperties() {
+    return {
+      title: String,
+      url: String
+    }
+  }
+
+  static get rdbRelationships() {
+    return [
+      { type: "belongsTo", target: User },
+      { type: "hasMany", target: Comment, inverse: "commentable" },
+    ]
+  }
+}
+
+// Comment
+
+class Comment extends RiverDB.Model {
+  static get rdbModelName() { return "comment" }
+  static get rdbCollectionName() { return "comments" }
+
+  static get rdbProperties() {
+    return {
+      body: String
+    }
+  }
+
+  static get rdbRelationships() {
+    return [
+      { type: "belongsTo", target: User },
+      { type: "belongsTo", target: "commentable", polymorphic: true },
+    ]
+  }
+}
+
+class PostWithSingleComment extends RiverDB.Model {
+  static get rdbModelName() { return "postWithSingleComment" }
+  static get rdbCollectionName() { return "postsWithSingleComment" }
+
+  static get rdbProperties() {
+    return {
+      title: String,
+      body: String
+    }
+  }
+
+  static get rdbRelationships() {
+    return [
+      { type: "hasOne", target: Comment, inverse: "commentable" }
+    ]
+  }
+}
 
 /**************************************************
  * Example Usage
  **************************************************/
 
-let floor = new Floor()
-floor.set("id", 1)
-floor.save()
+let user1 = new User({ id: 0 })
+user1.set("name", "Testy McTestface")
+user1.set("email", "testy@tester.website")
+user1.save()
 
-let floorGeometry = new LayoutPosition()
-floorGeometry.set("targetId", 1)
-floorGeometry.set("targetType", "floor")
-floorGeometry.save()
+let user2 = new User({ id: 1 })
+user2.set("name", "Mob Barley")
+user2.set("email", "mob.barley@some.website")
+user2.save()
 
-console.log("floor geometry:", floor.layoutPosition())
+for (let i = 0; i < 4; i++) {
+  let post = new Post({ id: i })
+  post.set("title", `Post ${i}`)
+  post.set("body", "Hello ".repeat(i + 1))
+  post.set("userId", i % 2)
+  post.save()
+}
+
+for (let i = 0; i < 2; i++) {
+  let vid = new Video({ id: i })
+  vid.set("title", `Video ${i}`)
+  vid.set("url", "tester.website/somevideo")
+  vid.set("userId", i % 2)
+  vid.save()
+}
+
+for (let i = 0; i < 6; i++) {
+  let comment = new Comment({ id: i })
+  comment.set("body", "Yo ".repeat(i + 1))
+  comment.set("userId", i % 2)
+
+  if (i % 2 == 0) {
+    comment.set("commentableType", Post.rdbModelName)
+    comment.set("commentableId", Math.floor(Math.random() * 4))
+  } else {
+    comment.set("commentableType", Video.rdbModelName)
+    comment.set("commentableId", Math.floor(Math.random() * 2))
+  }
+
+  comment.save()
+}
+
+let postWithSingleComment = new PostWithSingleComment({ id: 0 })
+postWithSingleComment.set("title", "Test Single-Comment Post")
+postWithSingleComment.set("body", "Hey")
+postWithSingleComment.save()
+
+let comment = new Comment({ id: 6 })
+comment.set("body", "Hello")
+comment.set("userId", 0)
+comment.set("commentableType", PostWithSingleComment.rdbModelName)
+comment.set("commentableId", 0)
+comment.save()

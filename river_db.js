@@ -68,14 +68,23 @@ RiverDB.Collection = class Collection {
   }
 
   getData() {
-    let data = JSON.parse(RiverDB.config.storage.getItem(this.collectionName));
-
-    if (!data) {
-      data = {};
-      RiverDB.config.storage.setItem(this.collectionName, JSON.stringify(data));
+    if (this._data) {
+      return this._data;
     }
 
-    return data;
+    let jsonString = RiverDB.config.storage.getItem(this.collectionName);
+
+    let storedData = jsonString ? JSON.parse(jsonString) : null;
+
+    if (!storedData) {
+      storedData = {};
+
+      RiverDB.config.storage.setItem(this.collectionName, "{}");
+    }
+
+    this._data = storedData;
+
+    return this._data;
   }
 
   getItem(clientId) {
@@ -145,18 +154,47 @@ RiverDB.Model = class Model {
       throw new Error("Attempt to instantiate unnamed RiverDB model");
     }
 
-    if (!this.constructor.rdbCollection) { // todo: can we move this?
-      this.constructor.createCollection();
+    if (!this.constructor.finalized) {
+      this.constructor.finalize();
     }
 
     this.rdbAttributes = {};
-    this.rdbClientId = RiverDB.Model.generateClientId();
+    this.rdbClientId = RiverDB.Model._generateClientId();
 
     if (attrs) {
       for (let attr in attrs) {
         this.set(attr, attrs[attr]);
       }
     }
+  }
+
+  // initializes properties, relationships, collection, etc.
+  static finalize() {
+    if (this.finalized) { return; }
+
+    if (!this.rdbCollection) {
+      this._createCollection();
+    }
+
+    for (let property in this.rdbProperties) {
+      this._definePropertyAccessor(property, this.rdbProperties[property]);
+    }
+
+    for (let relationship of this.rdbRelationships) {
+      switch (relationship.type) {
+      case "hasMany":
+        this._defineHasManyRelationship(relationship);
+        break;
+      case "hasOne":
+        this._defineHasOneRelationship(relationship);
+        break;
+      case "belongsTo":
+        this._defineBelongsToRelationship(relationship);
+        break;
+      }
+    }
+
+    this.finalized = true;
   }
 
   get(attr) {
@@ -171,11 +209,11 @@ RiverDB.Model = class Model {
     return this.get("id");
   }
 
-  static createCollection() {
+  static _createCollection() {
     this.rdbCollection = new RiverDB.Collection(this.rdbCollectionName, this.rdbModelName);
   }
 
-  static generateClientId() { // todo: should this be here
+  static _generateClientId() { // todo: should this be here
     return "rdbClientId" + "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
       let r = Math.random() * 16 | 0;
       let v = (c == "x") ? r : (r & 0x3 | 0x8);
@@ -183,61 +221,10 @@ RiverDB.Model = class Model {
     });
   }
 
-  static select(test) {
-    let singleSelect = (typeof test == "number" || typeof test == "string");
+  static _definePropertyAccessor(name, options) {
+    if (this.hasOwnProperty(name)) { return; }
 
-    if (singleSelect) {
-      let id = test;
-      test = function(item) { return item.id == id || item.rdbClientId == id; };
-    }
-
-    let results = [];
-
-    let collectionData = this.rdbCollection.getData();
-    for (let clientId in collectionData) {
-      let item = new this();
-      item.parseAttributes(collectionData[clientId]);
-      item.rdbClientId = clientId;
-      if (test == null || test(item)) {
-        if (singleSelect) { return item; }
-        results.push(item);
-      }
-    }
-
-    return results;
-  }
-
-  static clear(test) {
-    if (!test) {
-      this.rdbCollection.clearData();
-      return;
-    }
-
-    let singleSelect = (typeof test == "number" || typeof test == "string");
-
-    if (singleSelect) {
-      let id = test;
-      test = function(item) { return item.id == id || item.rdbClientId == id; };
-    }
-
-    let collectionData = this.rdbCollection.getData();
-    for (let clientId in collectionData) {
-      let item = new this();
-      item.parseAttributes(collectionData[clientId]);
-      item.rdbClientId = clientId;
-      if (test(item)) {
-        this.rdbCollection.clearItem(item);
-        if (singleSelect) { return; }
-      }
-    }
-  }
-
-  static hasProperty(name, options) {
-    if (this.prototype.hasOwnProperty(name)) { return; }
-
-    options = options || {};
-
-    Object.defineProperty(this.prototype, name, {
+    Object.defineProperty(this, name, {
       get: function() {
         if (options.get) { return options.get.call(this); }
         return this.get(name);
@@ -250,26 +237,118 @@ RiverDB.Model = class Model {
     });
   }
 
-  // todo: polymorphic relationships
-  // todo: apparently can't use model names as globals aren't hoisted
-  static hasMany(model) {
-    let thisModel = this;
-    this.prototype[model.rdbCollectionName] = function() {
-      return model.selectAll((item) => item[thisModel.rdbModelName + "Id"] == this.id);
-    };
+  static _defineHasManyRelationship(options) {
+    if (!(options && options.target)) { return; }
+
+    this.prototype[options.target.rdbCollectionName] = function() {
+      let thisModelName = this.constructor.rdbModelName;
+
+      return options.target.where((targetModel) => {
+        if (options.inverse) { // inverse polymorphic
+          if (targetModel.get(`${options.inverse}Type`) == thisModelName && targetModel.get(`${options.inverse}Id`) == this.id) {
+            return (!options.where || options.where(targetModel));
+          }
+        } else {
+          if (targetModel.get(`${thisModelName}Id`) == this.id) {
+            return (!options.where || options.where(targetModel));
+          }
+        }
+      });
+    }
   }
 
-  static hasOne(model) { // todo: wrap head around hasOne/belongsTo
-    let thisModel = this;
-    this.prototype[model.rdbModelName] = function() {
-      return model.select((item) => item[thisModel.rdbModelName + "Id"] == this.id);
-    };
+  static _defineHasOneRelationship(options) {
+    if (!(options && options.target)) { return; }
+
+    this.prototype[options.target.rdbModelName] = function() {
+      let thisModelName = this.constructor.rdbModelName;
+
+      return options.target.select((targetModel) => {
+        if (options.inverse) { // inverse polymorphic
+          if (targetModel.get(`${options.inverse}Type`) == thisModelName && targetModel.get(`${options.inverse}Id`) == this.id) {
+            return (!options.where || options.where(targetModel));
+          }
+        } else {
+          if (targetModel.get(`${thisModelName}Id`) == this.id) {
+            return (!options.where || options.where(targetModel));
+          }
+        }
+      });
+    }
   }
 
-  static belongsTo(model) {
-    this.prototype[model.rdbModelName] = function() {
-      return model.select(this[model.rdbModelName + "Id"]);
-    };
+  static _defineBelongsToRelationship(options) {
+    if (!(options && options.target)) { return; }
+
+    // todo: polymorphic
+    this.prototype[options.target.rdbModelName] = function() {
+      let targetModelName = options.target.rdbModelName;
+      let targetModelId = this.get(`${targetModelName}Id`);
+
+      return options.target.select((targetModel) => {
+        if (targetModel.id == targetModelId) {
+          return (!options.where || options.where(targetModel));
+        }
+      });
+    }
+  }
+
+  static selectAll() {
+    let results = [];
+
+    let collectionData = this.rdbCollection.getData();
+
+    for (let clientId in collectionData) {
+      let item = new this();
+      item.parseAttributes(collectionData[clientId]);
+      item.rdbClientId = clientId;
+      results.push(item);
+    }
+
+    return results;
+  }
+
+  static select(test) {
+    if (test == null) { return; }
+
+    if (typeof test == "string" || typeof test == "number") {
+      let id = test;
+      test = function(model) { return model.id == id || model.clientId == id; }
+    }
+
+    let collectionData = this.rdbCollection.getData();
+
+    for (let clientId in collectionData) {
+      let item = new this();
+      item.parseAttributes(collectionData[clientId]);
+      item.rdbClientId = clientId;
+      if (test(item)) {
+        return item;
+      }
+    }
+  }
+
+  static where(test) {
+    if (test == null) { return; }
+
+    let results = [];
+
+    let collectionData = this.rdbCollection.getData();
+
+    for (let clientId in collectionData) {
+      let item = new this();
+      item.parseAttributes(collectionData[clientId]);
+      item.rdbClientId = clientId;
+      if (test(item)) {
+        results.push(item);
+      }
+    }
+
+    return results;
+  }
+
+  static clearAll() {
+    this.rdbCollection.clearData();
   }
 
   static listen(listener) {
@@ -336,3 +415,4 @@ RiverDB.Model = class Model {
     this.constructor.rdbCollection.clearItem(this);
   }
 };
+
