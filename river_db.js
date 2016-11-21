@@ -161,7 +161,7 @@ RiverDB.Model = class Model {
     }
 
     this.rdbAttributes = {}
-    this.rdbClientId = RiverDB.Model._generateClientId()
+    this.rdbClientId = this.constructor._generateClientId()
 
     if (attrs) {
       for (let attr in attrs) {
@@ -217,12 +217,10 @@ RiverDB.Model = class Model {
     this.rdbCollection = new RiverDB.Collection(this.rdbCollectionName, this.rdbModelName)
   }
 
-  static _generateClientId() { // todo: should this be here
-    return "rdbClientId" + "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      let r = Math.random() * 16 | 0
-      let v = (c == "x") ? r : (r & 0x3 | 0x8)
-      return v.toString(16)
-    })
+  static _generateClientId() {
+    if (this.rdbLastClientId == null) { this.rdbLastClientId = 0 }
+    this.rdbLastClientId += 1
+    return `rdb-${this.rdbModelName}-${this.rdbLastClientId}`
   }
 
   static _definePropertyAccessor(name, options) {
@@ -428,4 +426,3 @@ RiverDB.Model = class Model {
     this.constructor.rdbCollection.clearItem(this)
   }
 }
-
