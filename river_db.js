@@ -236,7 +236,11 @@ RiverDB.Model = class Model {
       set: function(newValue) {
         if (options.readOnly) { return }
         // todo: implement validators
-        this.set(name, newValue)
+        if (options.set) {
+          options.set.call(this, newValue)
+        } else {
+          this.set(name, newValue)
+        }
       }
     })
   }
