@@ -13,7 +13,9 @@ MemoryStorage = {
 RiverDB = {
   config: {
     storage: MemoryStorage
-  }
+  },
+
+  modelNameMap: {}
 };
 
 RiverDB.rdbClone = function(obj) {
@@ -172,6 +174,8 @@ RiverDB.Model = class Model {
   static finalize() {
     if (this.finalized) { return; }
 
+    RiverDB.modelNameMap[this.rdbModelName] = this;
+
     if (!this.rdbCollection) {
       this._createCollection();
     }
@@ -280,14 +284,19 @@ RiverDB.Model = class Model {
   static _defineBelongsToRelationship(options) {
     if (!(options && options.target)) { return; }
 
-    // todo: polymorphic
-    this.prototype[options.target.rdbModelName] = function() {
-      let targetModelName = options.target.rdbModelName;
-      let targetModelId = this.get(`${targetModelName}Id`);
+    let targetModelName = options.polymorphic ? options.target : options.target.rdbModelName;
 
-      return options.target.select((targetModel) => {
-        if (targetModel.id == targetModelId) {
-          return (!options.where || options.where(targetModel));
+    this.prototype[targetModelName] = function() {
+      let targetModelId = this.get(`${targetModelName}Id`);
+      let targetModel = options.target;
+
+      if (options.polymorphic) {
+        targetModel = RiverDB.modelNameMap[this.get(`${targetModelName}Type`)];
+      }
+
+      return targetModel.select((model) => {
+        if (model.id == targetModelId) {
+          return (!options.where || options.where(model));
         }
       });
     }
