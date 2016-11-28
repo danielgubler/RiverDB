@@ -322,6 +322,8 @@ RiverDB.Model = class Model {
   }
 
   static select(test) {
+    if (!this.finalized) { this.finalize() }
+
     if (test == null) { return }
 
     if (typeof test == "string" || typeof test == "number") {
@@ -342,6 +344,8 @@ RiverDB.Model = class Model {
   }
 
   static where(test) {
+    if (!this.finalized) { this.finalize() }
+
     if (test == null) { return }
 
     let results = []
