@@ -364,6 +364,23 @@ RiverDB.Model = class Model {
     return results
   }
 
+  static clear(test) {
+    if (!this.finalized) { this.finalize() }
+
+    if (test == null) { return }
+
+    let collectionData = this.rdbCollection.getData()
+
+    for (let clientId in collectionData) {
+      let item = new this()
+      item.parseAttributes(collectionData[clientId])
+      item.rdbClientId = clientId
+      if (test(item)) {
+        this.rdbCollection.clearItem(item)
+      }
+    }
+  }
+
   static clearAll() {
     this.rdbCollection.clearData()
   }
