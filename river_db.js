@@ -176,10 +176,6 @@ RiverDB.Model = class Model {
 
     RiverDB.modelNameMap[this.rdbModelName] = this
 
-    if (!this.rdbCollection) {
-      this._createCollection()
-    }
-
     for (let property in this.rdbProperties) {
       this._definePropertyAccessor(property, this.rdbProperties[property])
     }
@@ -211,10 +207,6 @@ RiverDB.Model = class Model {
 
   get id() {
     return this.get("id")
-  }
-
-  static _createCollection() {
-    this.rdbCollection = new RiverDB.Collection(this.rdbCollectionName, this.rdbModelName)
   }
 
   static _generateClientId() {
@@ -302,6 +294,16 @@ RiverDB.Model = class Model {
         }
       })
     }
+  }
+
+  static get rdbCollection() {
+    if (this._rdbCollection) {
+      return this._rdbCollection
+    }
+
+    this._rdbCollection = new RiverDB.Collection(this.rdbCollectionName, this.rdbModelName)
+
+    return this._rdbCollection
   }
 
   static selectAll() {
