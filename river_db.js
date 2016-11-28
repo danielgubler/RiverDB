@@ -216,9 +216,9 @@ RiverDB.Model = class Model {
   }
 
   static _definePropertyAccessor(name, options) {
-    if (this.hasOwnProperty(name)) { return }
+    if (this.prototype.hasOwnProperty(name)) { return }
 
-    Object.defineProperty(this, name, {
+    Object.defineProperty(this.prototype, name, {
       get: function() {
         if (options.get) { return options.get.call(this) }
         return this.get(name)
