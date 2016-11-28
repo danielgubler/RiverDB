@@ -383,7 +383,7 @@ RiverDB.Model = class Model {
     this.rdbDeserializers[name] = deserializer
   }
 
-  static deserialize(data) { // todo: should we have both class and instance deserialize?
+  static deserialize(name, data) { // todo: should we have both class and instance deserialize?
     let deserializer = this.rdbDeserializers[name]
     let newModel = new this()
     deserializer(newModel, data)
