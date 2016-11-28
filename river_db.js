@@ -64,7 +64,7 @@ RiverDB.Collection = class Collection {
     this.modelName = modelName
   }
 
-  static listen(listener) {
+  listen(listener) {
     this.listeners = this.listeners || new Set()
     this.listeners.add(listener)
   }
